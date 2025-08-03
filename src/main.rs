@@ -10,6 +10,7 @@ extern crate rustc_interface;
 extern crate rustc_macros;
 extern crate rustc_middle;
 extern crate rustc_mir_build;
+extern crate rustc_query_system;
 extern crate rustc_session;
 extern crate rustc_span;
 extern crate rustc_target;
@@ -17,7 +18,5 @@ extern crate rustc_target;
 mod run;
 
 fn main() {
-    let x = 0;
-    println!("{}", x);
-    run::run_tautrust();
+    run::run_verif();
 }
