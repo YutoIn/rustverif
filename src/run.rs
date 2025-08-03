@@ -162,61 +162,86 @@ pub fn reduce_thir<'tcx>(tcx: TyCtxt<'tcx>, thir: Thir<'tcx>) -> RThir<'tcx> {
     RThir { params, body }
 }
 
+// --- Custom Debug Printing for RTHIR ---
+
 fn print_with_indent(f: &mut fmt::Formatter<'_>, s: &str, indent: usize) -> fmt::Result {
     writeln!(f, "{}{}", "  ".repeat(indent), s)
 }
 
-impl fmt::Debug for RExpr<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut stack = vec![(self, 0)];
-        
-        while let Some((expr, indent)) = stack.pop() {
-            print_with_indent(f, "Expr {", indent)?;
-            print_with_indent(f, &format!("span: {:?}", expr.span), indent + 1)?;
-            print_with_indent(f, "kind:", indent + 1)?;
+fn format_expr_recursive(f: &mut fmt::Formatter<'_>, expr: &RExpr<'_>, indent: usize) -> fmt::Result {
+    print_with_indent(f, "Expr {", indent)?;
+    print_with_indent(f, &format!("span: {:?}", expr.span), indent + 1)?;
+    print_with_indent(f, "kind:", indent + 1)?;
 
-            match &expr.kind {
-                RExprKind::Block { stmts, expr: block_expr } => {
-                    print_with_indent(f, "Block {", indent + 2)?;
-                    if !stmts.is_empty() {
-                        print_with_indent(f, "stmts: [", indent + 3)?;
-                        for stmt in stmts.iter().rev() {
-                           stack.push((stmt, indent + 4));
-                        }
-                    }
-                    if let Some(e) = block_expr {
-                       print_with_indent(f, "expr: ", indent + 3)?;
-                       stack.push((e, indent + 4));
-                    }
-                    if !stmts.is_empty() {
-                       print_with_indent(f, "]", indent + 3)?;
-                    }
-                    print_with_indent(f, "}", indent + 2)?;
+    match &expr.kind {
+        RExprKind::Block { stmts, expr: block_expr } => {
+            print_with_indent(f, "Block {", indent + 2)?;
+            if !stmts.is_empty() {
+                print_with_indent(f, "stmts: [", indent + 3)?;
+                for stmt in stmts {
+                    format_expr_recursive(f, stmt, indent + 4)?;
                 }
-                RExprKind::LetStmt { pattern, initializer } => {
-                     print_with_indent(f, "LetStmt {", indent + 2)?;
-                     print_with_indent(f, "pattern:", indent + 3)?;
-                     stack.push((pattern, indent + 4));
-                     if let Some(init) = initializer {
-                        print_with_indent(f, ",", indent + 2)?;
-                        print_with_indent(f, "initializer: Some(", indent + 3)?;
-                        stack.push((init, indent + 4));
-                        print_with_indent(f, ")", indent + 3)?;
-                     }
-                     print_with_indent(f, "}", indent + 2)?;
-                }
-                RExprKind::Pat { kind } => {
-                    print_with_indent(f, "Pat {", indent + 2)?;
-                    print_with_indent(f, &format!("PatKind {{ {:?} }}", kind), indent + 3)?;
-                    print_with_indent(f, "}", indent + 2)?;
-                }
-                _ => {
-                    print_with_indent(f, &format!("{:?}", expr.kind), indent + 2)?;
+                print_with_indent(f, "]", indent + 3)?;
+            }
+            if let Some(e) = block_expr {
+                print_with_indent(f, "expr:", indent + 3)?;
+                format_expr_recursive(f, e, indent + 4)?;
+            }
+            print_with_indent(f, "}", indent + 2)?;
+        }
+        RExprKind::LetStmt { pattern, initializer } => {
+            print_with_indent(f, "LetStmt {", indent + 2)?;
+            print_with_indent(f, "pattern:", indent + 3)?;
+            format_expr_recursive(f, pattern, indent + 4)?;
+            if let Some(init) = initializer {
+                print_with_indent(f, ",", indent + 2)?;
+                print_with_indent(f, "initializer: Some(", indent + 3)?;
+                format_expr_recursive(f, init, indent + 4)?;
+                print_with_indent(f, ")", indent + 3)?;
+            }
+            print_with_indent(f, "}", indent + 2)?;
+        }
+        RExprKind::Pat { kind } => {
+            print_with_indent(f, "Pat {", indent + 2)?;
+            print_with_indent(f, "PatKind {", indent + 3)?;
+            match kind {
+                RPatKind::Binding { name, mode, var, ty, subpattern, is_primary } => {
+                    print_with_indent(f, "Binding {", indent + 4)?;
+                    print_with_indent(f, &format!("name: {:?}", name), indent + 5)?;
+                    print_with_indent(f, &format!("mode: {:?}", mode), indent + 5)?;
+                    print_with_indent(f, &format!("var: {:?}", var), indent + 5)?;
+                    print_with_indent(f, &format!("ty: {:?}", ty), indent + 5)?;
+                    if let Some(sub) = subpattern {
+                        print_with_indent(f, "subpattern: Some(", indent + 5)?;
+                        format_expr_recursive(f, sub, indent + 6)?;
+                        print_with_indent(f, ")", indent + 5)?;
+                    } else {
+                        print_with_indent(f, "subpattern: None", indent + 5)?;
+                    }
+                    print_with_indent(f, &format!("is_primary: {:?}", is_primary), indent + 5)?;
+                    print_with_indent(f, "}", indent + 4)?;
                 }
             }
-             print_with_indent(f, "}", indent)?;
+            print_with_indent(f, "}", indent + 3)?;
+            print_with_indent(f, "}", indent + 2)?;
         }
-        Ok(())
+        RExprKind::Literal { lit, neg } => {
+            print_with_indent(f, "Literal {", indent + 2)?;
+            print_with_indent(f, &format!("lit: {:?}", lit), indent + 3)?;
+            print_with_indent(f, &format!("neg: {:?}", neg), indent + 3)?;
+            print_with_indent(f, "}", indent + 2)?;
+        }
+        _ => {
+            print_with_indent(f, &format!("{:?}", expr.kind), indent + 2)?;
+        }
+    }
+    print_with_indent(f, "}", indent)?;
+    Ok(())
+}
+
+impl fmt::Debug for RExpr<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        format_expr_recursive(f, self, 0)
     }
 }
 
@@ -238,7 +263,7 @@ impl Callbacks for MyCallbacks {
                 let rthir = reduce_thir(tcx, thir);
                 println!("{:#?}", rthir);
             } else {
-                 println!("// Could not get THIR for `{}`", tcx.def_path_str(def_id.to_def_id()));
+                println!("// Could not get THIR for `{}`", tcx.def_path_str(def_id.to_def_id()));
             }
         }
 
