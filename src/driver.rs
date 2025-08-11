@@ -2,6 +2,7 @@
 
 use crate::hir_reducer::reduce_thir;
 use crate::rthir::RThir;
+use crate::smt_converter::to_smt_lib;
 use crate::symbolic_exec::symbolic_exec_body;
 use rustc_data_structures::fx::FxHashMap;
 use rustc_driver::{run_compiler, Callbacks, Compilation};
@@ -53,6 +54,11 @@ impl Callbacks for MyCallbacks {
                         Ok(final_env) => {
                             println!("\n--- Symbolic Execution Finished ---");
                             println!("Final Environment: {:#?}", final_env);
+
+                            // 5. SMT-LIB形式に変換して出力
+                            println!("\n--- Generated SMT-LIB ---");
+                            let smt_lib_str = to_smt_lib(&final_env);
+                            println!("{}", smt_lib_str);
                         }
                         Err(e) => {
                             eprintln!("\nError during symbolic execution: {:?}", e);
@@ -89,7 +95,7 @@ pub fn run_verif() {
     let input_code = r#"
 fn main() {
     let x = 1;
-	let y = 2;
+    let y = 2;
 }
 "#;
     std::fs::write(&input_file, input_code).expect("Failed to write to input.rs");

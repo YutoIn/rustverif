@@ -53,9 +53,17 @@ fn symbolic_exec_let_stmt<'tcx>(
 
     // パターンから変数IDを取得し、Envに登録
     if let RExprKind::Pat { kind } = &pattern.kind {
-        if let RPatKind::Binding { var, .. } = kind {
-            env.var_map.insert(*var, initializer_lir);
-            return Ok(());
+        match kind {
+            RPatKind::Binding { var, ty, .. } => {
+                // SMTソルバーで使う変数名を作成 (例: "LocalVarId(HirId(DefId(0:3).5))")
+                let smt_var_name = format!("{:?}", var);
+                // SMT変数を宣言リストに追加
+                env.smt_vars.push((smt_var_name, ty.kind().clone()));
+
+                // 変数マップにLIRを登録
+                env.var_map.insert(*var, initializer_lir);
+                return Ok(());
+            }
         }
     }
 

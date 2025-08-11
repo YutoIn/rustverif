@@ -24,6 +24,7 @@ mod hir_reducer;
 mod lir;
 mod pretty_print;
 mod rthir;
+mod smt_converter;
 mod symbolic_exec;
 
 fn main() {
