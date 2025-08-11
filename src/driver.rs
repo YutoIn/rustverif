@@ -1,46 +1,73 @@
-// std crates
-use std::path::PathBuf;
+//! rustc_driver を使ってコンパイラを操作するモジュール
 
-// rustc crates
+use crate::hir_reducer::reduce_thir;
+use crate::rthir::RThir;
+use crate::symbolic_exec::symbolic_exec_body;
+use rustc_data_structures::fx::FxHashMap;
 use rustc_driver::{run_compiler, Callbacks, Compilation};
+use rustc_hir::def_id::LocalDefId;
 use rustc_interface::interface::Compiler;
 use rustc_middle::ty::TyCtxt;
+use std::path::PathBuf;
 
-// Local modules
-use crate::hir_reducer::reduce_thir;
+/// プログラム内の全関数のRTHIRをマップとして取得する
+fn get_fn_map<'tcx>(tcx: TyCtxt<'tcx>) -> FxHashMap<LocalDefId, RThir<'tcx>> {
+    let mut fn_map = FxHashMap::default();
+    let mir_keys = tcx.mir_keys(());
 
+    for def_id in mir_keys {
+        if !def_id.to_def_id().is_local() {
+            continue;
+        }
+        if let Ok((thir, _)) = tcx.thir_body(*def_id) {
+            let thir = thir.steal();
+            let rthir = reduce_thir(tcx, def_id.to_def_id(), thir);
+            fn_map.insert(*def_id, rthir);
+        }
+    }
+    fn_map
+}
+
+/// コンパイラのコールバックを実装する構造体
 struct MyCallbacks {}
 
 impl Callbacks for MyCallbacks {
     /// 型解析後に呼び出されるフック
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
-        println!("--- Extracting and Printing RTHIR for all functions ---");
+        println!("--- Starting Symbolic Execution ---");
 
-        // コンパイル対象内のすべてのMIRキー（≒関数）を取得
-        let mir_keys = tcx.mir_keys(());
+        // 1. プログラム内の全関数のRTHIRをマップとして取得
+        let fn_map = get_fn_map(tcx);
 
-        for def_id in mir_keys {
-            // ローカルクレート内の関数のみを対象とする
-            if !def_id.to_def_id().is_local() {
-                continue;
-            }
+        // 2. main関数のDefIdを取得
+        if let Some((main_def_id, _)) = tcx.entry_fn(()) {
+            // DefIdをLocalDefIdに変換
+            if let Some(main_local_def_id) = main_def_id.as_local() {
+                // 3. マップからmain関数のRTHIRを取得
+                if let Some(main_rthir) = fn_map.get(&main_local_def_id) {
+                    println!("\nFound main function: {:?}", main_def_id);
+                    println!("--- Analyzing main function ---");
 
-            // THIRを取得
-            if let Ok((thir, _entry_expr)) = tcx.thir_body(*def_id) {
-                println!(); // Add a newline for better separation
-                // `steal`で所有権を取得
-                let thir = thir.steal();
-                // THIRをRTHIRに変換
-                let rthir = reduce_thir(tcx, def_id.to_def_id(), thir);
-                // プリティプリント
-                println!("{:#?}", rthir);
+                    // 4. main関数をエントリーポイントとしてシンボリック実行を開始
+                    match symbolic_exec_body(main_rthir) {
+                        Ok(final_env) => {
+                            println!("\n--- Symbolic Execution Finished ---");
+                            println!("Final Environment: {:#?}", final_env);
+                        }
+                        Err(e) => {
+                            eprintln!("\nError during symbolic execution: {:?}", e);
+                        }
+                    }
+                } else {
+                    eprintln!("Could not find RTHIR for main function.");
+                }
             } else {
-                println!("\n// Could not get THIR for `{}`", tcx.def_path_str(def_id.to_def_id()));
+                eprintln!("Entry function is not a local function.");
             }
+        } else {
+            eprintln!("Could not find entry function (main).");
         }
 
-        println!("\n\n--- RTHIR extraction complete ---");
-        // これ以上コンパイルを続けない
         Compilation::Stop
     }
 }
@@ -62,6 +89,7 @@ pub fn run_verif() {
     let input_code = r#"
 fn main() {
     let x = 1;
+	let y = 2;
 }
 "#;
     std::fs::write(&input_file, input_code).expect("Failed to write to input.rs");
@@ -70,7 +98,6 @@ fn main() {
     let args: Vec<String> = vec![
         "thir-extractor".to_string(),
         input_file.to_str().unwrap().to_string(),
-        // THIRの所有権を`steal`するために必要
         "-Zno-steal-thir".to_string(),
         "--sysroot".to_string(),
         find_sysroot(),
