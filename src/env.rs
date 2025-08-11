@@ -7,6 +7,7 @@ use rustc_middle::ty::TyKind;
 
 /// シンボリック実行の状態を保持する環境
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // Will be used in later stages
 pub struct Env<'tcx> {
     /// SMTソルバーで宣言される変数のリスト (名前, 型)
     pub smt_vars: Vec<(String, TyKind<'tcx>)>,
@@ -14,6 +15,8 @@ pub struct Env<'tcx> {
     pub path: Vec<String>,
     /// RTHIRの変数IDとLIRの値を対応付けるマップ
     pub var_map: FxHashMap<LocalVarId, Lir<'tcx>>,
+    /// 変数IDとソースコード上の名前を対応付けるマップ
+    pub var_name_map: FxHashMap<LocalVarId, String>,
 }
 
 impl<'tcx> Env<'tcx> {
@@ -23,6 +26,7 @@ impl<'tcx> Env<'tcx> {
             smt_vars: Vec::new(),
             path: Vec::new(),
             var_map: FxHashMap::default(),
+            var_name_map: FxHashMap::default(),
         }
     }
 }

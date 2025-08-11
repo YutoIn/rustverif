@@ -1,4 +1,4 @@
-// RTHIRプリティプリンタ
+//! RTHIR のためのプリティプリンタ
 
 use crate::rthir::*;
 use rustc_middle::ty::TyCtxt;
@@ -13,8 +13,17 @@ fn print_with_indent(f: &mut fmt::Formatter<'_>, s: &str, indent: usize) -> fmt:
 /// RThir の Debug トレイト実装
 impl fmt::Debug for RThir<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let params_str = if self.params.is_empty() { "[]" } else { "[...]" };
-        writeln!(f, "{:?}, params: {}", self.def_id, params_str)?;
+        writeln!(f, "{:?}, params: [", self.def_id)?;
+        for param in &self.params {
+            print_with_indent(f, "Param {", 1)?;
+            if let Some(pat) = &param.pat {
+                print_with_indent(f, "param: Some(", 2)?;
+                format_expr(f, self.tcx, pat, 3)?;
+                print_with_indent(f, ")", 2)?;
+            }
+            print_with_indent(f, "}", 1)?;
+        }
+        writeln!(f, "]")?;
         writeln!(f, "body:")?;
         format_expr(f, self.tcx, &self.body, 1)
     }
@@ -82,8 +91,40 @@ fn format_expr_kind(f: &mut fmt::Formatter<'_>, tcx: TyCtxt<'_>, kind: &RExprKin
             print_with_indent(f, &format!("neg: {:?}", neg), indent + 1)?;
             print_with_indent(f, ")", indent)
         }
-        RExprKind::VarRef { id } => {
-            print_with_indent(f, &format!("VarRef {{ id: {:?} }}", id), indent)
+        RExprKind::VarRef { id } => print_with_indent(f, &format!("VarRef {{ id: {:?} }}", id), indent),
+        RExprKind::Binary { op, lhs, rhs } => {
+            print_with_indent(f, "Binary {", indent)?;
+            print_with_indent(f, &format!("op: {:?}", op), indent + 1)?;
+            print_with_indent(f, "lhs:", indent + 1)?;
+            format_expr(f, tcx, lhs, indent + 2)?;
+            print_with_indent(f, "rhs:", indent + 1)?;
+            format_expr(f, tcx, rhs, indent + 2)?;
+            print_with_indent(f, "}", indent)
+        }
+        RExprKind::Call { fun, args, fn_def_id } => {
+            print_with_indent(f, "Call {", indent)?;
+            print_with_indent(f, &format!("fn_def_id: {:?}", fn_def_id), indent + 1)?;
+            print_with_indent(f, "fun:", indent + 1)?;
+            format_expr(f, tcx, fun, indent + 2)?;
+            print_with_indent(f, "args: [", indent + 1)?;
+            for arg in args {
+                format_expr(f, tcx, arg, indent + 2)?;
+            }
+            print_with_indent(f, "]", indent + 1)?;
+            print_with_indent(f, "}", indent)
+        }
+        RExprKind::ZstLiteral => print_with_indent(f, "ZstLiteral", indent),
+        RExprKind::If { cond, then, else_opt } => {
+            print_with_indent(f, "If {", indent)?;
+            print_with_indent(f, "cond:", indent + 1)?;
+            format_expr(f, tcx, cond, indent + 2)?;
+            print_with_indent(f, "then:", indent + 1)?;
+            format_expr(f, tcx, then, indent + 2)?;
+            if let Some(e) = else_opt {
+                print_with_indent(f, "else:", indent + 1)?;
+                format_expr(f, tcx, e, indent + 2)?;
+            }
+            print_with_indent(f, "}", indent)
         }
     }
 }
@@ -91,13 +132,11 @@ fn format_expr_kind(f: &mut fmt::Formatter<'_>, tcx: TyCtxt<'_>, kind: &RExprKin
 /// RPatKindを再帰的にフォーマットする
 fn format_pat_kind(f: &mut fmt::Formatter<'_>, _tcx: TyCtxt<'_>, kind: &RPatKind<'_>, indent: usize) -> fmt::Result {
     match kind {
-        RPatKind::Binding { name, mode, var, ty, subpattern, is_primary, } => {
+        RPatKind::Binding { name, var, ty, subpattern, .. } => {
             print_with_indent(f, "Binding {", indent)?;
             print_with_indent(f, &format!(r#"name: "{}""#, name), indent + 1)?;
-            print_with_indent(f, &format!("mode: {:?}", mode), indent + 1)?;
             print_with_indent(f, &format!("var: {:?}", var), indent + 1)?;
             print_with_indent(f, &format!("ty: {:?}", ty), indent + 1)?;
-            print_with_indent(f, &format!("is_primary: {:?}", is_primary), indent + 1)?;
             let sub_str = if subpattern.is_some() { "Some(...)" } else { "None" };
             print_with_indent(f, &format!("subpattern: {}", sub_str), indent + 1)?;
             print_with_indent(f, "}", indent)
