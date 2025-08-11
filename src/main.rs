@@ -1,5 +1,6 @@
 #![feature(rustc_private)]
 
+// rustc crates
 extern crate rustc_ast;
 extern crate rustc_data_structures;
 extern crate rustc_driver;
@@ -15,8 +16,12 @@ extern crate rustc_session;
 extern crate rustc_span;
 extern crate rustc_target;
 
-mod run;
+// Local modules
+mod driver;
+mod hir_reducer;
+mod pretty_print;
+mod rthir;
 
 fn main() {
-    run::run_verif();
+    driver::run_verif();
 }
