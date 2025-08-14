@@ -1,10 +1,8 @@
 //! rustc_driver を使ってコンパイラを操作するモジュール
 
-use crate::env::Env;
+use crate::chc::{chc_to_smt, ChcGen, ChcRule};
 use crate::hir_reducer::reduce_thir;
 use crate::rthir::RThir;
-use crate::smt_converter::to_smt_lib;
-use crate::symbolic_exec::symbolic_exec_body;
 use rustc_data_structures::fx::FxHashMap;
 use rustc_driver::{run_compiler, Callbacks, Compilation};
 use rustc_hir::def_id::LocalDefId;
@@ -16,7 +14,6 @@ use std::path::PathBuf;
 fn get_fn_map<'tcx>(tcx: TyCtxt<'tcx>) -> FxHashMap<LocalDefId, RThir<'tcx>> {
     let mut fn_map = FxHashMap::default();
     let mir_keys = tcx.mir_keys(());
-
     for def_id in mir_keys {
         if !def_id.to_def_id().is_local() {
             continue;
@@ -37,42 +34,25 @@ impl Callbacks for MyCallbacks {
     /// 型解析後に呼び出されるフック
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
         println!("--- Starting Analysis ---");
-
-        // 1. プログラム内の全関数のRTHIRをマップとして取得
+        // 全ての関数をRTHIRへ変換
         let fn_map = get_fn_map(tcx);
-
-        // 2. main関数のDefIdを取得
-        if let Some((main_def_id, _)) = tcx.entry_fn(()) {
-            if let Some(main_local_def_id) = main_def_id.as_local() {
-                // 3. マップからmain関数のRTHIRを取得
-                if let Some(main_rthir) = fn_map.get(&main_local_def_id) {
-                    println!("\nFound main function: {:?}", main_def_id);
-                    println!("--- Starting Symbolic Execution from main ---");
-
-                    // 4. main関数をエントリーポイントとしてシンボリック実行を開始
-                    let mut initial_env = Env::new();
-                    match symbolic_exec_body(&mut initial_env, main_rthir, tcx, &fn_map) {
-                        Ok(()) => {
-                            println!("\n--- Symbolic Execution Finished ---");
-                            // 5. SMT-LIB形式に変換して出力
-                            println!("\n--- Generated SMT-LIB ---");
-                            let smt_lib_str = to_smt_lib(&initial_env);
-                            println!("{}", smt_lib_str);
-                        }
-                        Err(e) => {
-                            eprintln!("\nError during symbolic execution: {:?}", e);
-                        }
-                    }
-                } else {
-                    eprintln!("Could not find RTHIR for main function.");
+        println!("\n--- Generating Constrained Horn Clauses (CHC) ---");
+        // 各関数ごとにCHCを生成し、すべてのルールを集める
+        let mut all_rules: Vec<ChcRule<'tcx>> = Vec::new();
+        for (_def_id, rthir) in fn_map.iter() {
+            let mut chc_gen = ChcGen::new(tcx);
+            match chc_gen.process_fun(rthir) {
+                Ok(()) => {
+                    all_rules.extend(chc_gen.rules.into_iter());
                 }
-            } else {
-                eprintln!("Entry function is not a local function.");
+                Err(e) => {
+                    eprintln!("Error generating CHC for {:?}: {:?}", rthir.def_id, e);
+                }
             }
-        } else {
-            eprintln!("Could not find entry function (main).");
         }
-
+        println!("\n--- Generated SMT-LIB2 for CHC ---");
+        let smt_string = chc_to_smt(&all_rules);
+        println!("{}", smt_string);
         Compilation::Stop
     }
 }
@@ -93,22 +73,22 @@ pub fn run_verif() {
     let input_file = PathBuf::from("input.rs");
     let input_code = r#"
 // Dummy functions to make the compiler happy
-fn rand_int() -> i32 { 0 }
-
-fn simple_assertion(x: i32, y: i32) {
-    if x == y {
-        // do nothing
+fn seven(n: i64) -> i64 
+// todo
+// require: n <= i64::MAX - 3
+// ensure: n == 7
+{
+    if n <= 4 {
+        n + 3
+    } else {
+        seven(seven(n - 4))
     }
 }
-
 fn main() {
-    let a = rand_int();
-    let b = rand_int();
-    simple_assertion(a, b);
+    let _r = seven(42) - 7;
 }
 "#;
     std::fs::write(&input_file, input_code).expect("Failed to write to input.rs");
-
     // コンパイラに渡す引数を設定
     let args: Vec<String> = vec![
         "thir-extractor".to_string(),
@@ -117,19 +97,15 @@ fn main() {
         "--sysroot".to_string(),
         find_sysroot(),
     ];
-
     println!("Running compiler with args: {:?}", &args[1..]);
     println!("============================================");
-
     // コンパイラを実行
     let result = std::panic::catch_unwind(|| {
         run_compiler(&args, &mut MyCallbacks {});
     });
-
     if result.is_err() {
         eprintln!("Compiler run panicked! This can happen when using unstable nightly rustc APIs.");
     }
-
     // ダミーファイルを削除
     let _ = std::fs::remove_file(input_file);
 }

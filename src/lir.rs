@@ -7,10 +7,7 @@ use std::rc::Rc;
 /// LIRの本体。現在は変数の値を表す文字列のみを持つ
 #[derive(Clone, Debug)]
 pub enum LirKind<'tcx> {
-    VarExpr {
-        var_expr: String,
-        ty: TyKind<'tcx>,
-    },
+    VarExpr { var_expr: String, ty: TyKind<'tcx> },
 }
 
 /// 値の式を論理式として扱うための構造体

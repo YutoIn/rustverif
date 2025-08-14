@@ -17,6 +17,7 @@ extern crate rustc_span;
 extern crate rustc_target;
 
 // Local modules
+mod chc;
 mod driver;
 mod env;
 mod errors;
@@ -25,7 +26,6 @@ mod lir;
 mod pretty_print;
 mod rthir;
 mod smt_converter;
-mod symbolic_exec;
 
 fn main() {
     // driverモジュールのrun_verif関数を呼び出して検証プロセスを開始します。

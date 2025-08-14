@@ -42,9 +42,7 @@ pub enum RExprKind<'tcx> {
         expr: Option<Rc<RExpr<'tcx>>>,
     },
     /// 変数参照
-    VarRef {
-        id: LocalVarId,
-    },
+    VarRef { id: LocalVarId },
     /// リテラル (例: 1, "hello")
     Literal {
         lit: rustc_span::source_map::Spanned<rustc_ast::ast::LitKind>,
@@ -56,9 +54,7 @@ pub enum RExprKind<'tcx> {
         initializer: Option<Rc<RExpr<'tcx>>>,
     },
     /// パターン
-    Pat {
-        kind: RPatKind<'tcx>,
-    },
+    Pat { kind: RPatKind<'tcx> },
     /// 二項演算
     Binary {
         op: BinOp,
